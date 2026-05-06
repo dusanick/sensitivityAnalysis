@@ -1,102 +1,52 @@
 # Sensitivity Analysis Dashboard
 
-Interactive Streamlit dashboard for exploring how parameter variations from a
-RealTest-style sensitivity sweep influence strategy metrics. Inspired by the
-`Param Sensitivity` tab in `Robustness_Testing_Templates_V1.xlsx` and extended
-with per-parameter bar charts, two-parameter heatmaps and metric-distribution
-histograms vs a baseline run.
+Streamlit app for analysing parameter sensitivity sweeps. Upload a CSV of runs and an optional baseline to visualise how parameter changes affect strategy metrics.
 
-## Features
+## Install
 
-| Feature | Description |
-|---------|-------------|
-| **Parameter Effect** | One bar per level of the chosen parameter, Y = mean / median / min / max of metric across all runs sharing that level. Mean shows ±1 std whiskers. |
-| **Histograms** | Distribution of each selected metric across all (filtered) runs; bin containing the baseline value highlighted dark red. |
-| **Heatmap** | Mean of any metric across the cross of two parameters. |
-| **Raw Data** | Browse and download the filtered runs frame as CSV. |
-| **Robust CSV upload** | Auto-detects encoding (utf-8 / utf-8-sig / cp1252 / latin-1) and delimiter (`,` `;` tab `\|`). Parses `27.49%`, `(1234.50)`, `AUD 1,234`, `1.234,56` (EU) and `1 234 567`. |
-| **Flexible baseline** | Baseline column names matched case-insensitively and aligned to the runs frame. |
-| **Configurable column roles** | Smart defaults (`newStrat_*` → parameter, common stat names → metric) are overridable via checkboxes. |
-| **Other-parameter filter** | Per-parameter multiselects to slice the dataset before analysis. |
-
-## Project Structure
-
-```
-sensitivityAnalysis/
-├── app/
-│   ├── main.py          # Streamlit entry-point + sidebar / tabs
-│   ├── data.py          # CSV I/O, numeric coercion, column classification
-│   ├── analytics.py     # Per-level aggregation, baseline delta
-│   ├── charts.py        # Plotly chart builders (bars / histogram / heatmap)
-│   └── config.py        # Default whitelists, colours, prefixes
-├── tests/
-│   ├── test_data.py
-│   ├── test_analytics.py
-│   └── test_charts.py
-├── requirements.txt
-├── run.bat              # Windows one-click launcher
-└── README.md
-```
-
-## Setup
-
-```powershell
+```bash
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Usage
+## Run
 
-```powershell
+```bash
+.venv\Scripts\activate
 streamlit run app\main.py
 ```
 
-Or double-click `run.bat`.
+Or double-click `run.bat` on Windows.
 
-Then in the sidebar:
+## Features
 
-1. Upload your **runs CSV** (one row per parameter combination).
-2. Upload your **baseline CSV** (single-row reference run).
-3. Use the **Column roles** checkboxes to confirm which columns are
-   parameters and which are metrics.
-4. Pick a parameter and one or more metrics to analyse.
-5. (Optional) Pick metrics + bin count for the Histograms tab.
+- **Parameter Effect** — bar chart per metric grouped by parameter level (mean/median/min/max, ±1 std whiskers)
+- **Histograms** — distribution of each metric across all runs; baseline bin highlighted
+- **Summary Statistics** — table with Count, Min, Max, Median, Average, Baseline Value, % Delta to Average/Median, Baseline Percentile with color coding (amber/green/red)
+- **Heatmap** — two-parameter interaction matrix for any metric
+- **Raw Data** — browse and download filtered data as CSV
+- **Robust CSV parsing** — auto-detects encoding and delimiter; handles `%`, currency prefixes, European/US number formats
 
-### Sidebar Controls
+## Sidebar
 
-| Control | Default | Description |
-|---------|---------|-------------|
-| Runs CSV | — | Sweep file, one row per parameter combination |
-| Baseline CSV | — | Single-row reference run |
-| Parameter prefix | `newStrat_` | Auto-classifies columns as parameters |
-| Parameters / Metrics | auto | Override the auto-classification |
-| Parameter to analyse | first | Drives the Parameter Effect tab |
-| Metrics to plot | first 3 | Bar charts, one per metric |
-| Bar aggregation | mean | mean (±1 std) / median / min / max |
-| Histogram metrics | = analysis metrics | Independent metric set for the Histograms tab |
-| Histogram bins | 10 | 5–50 |
+| Section | Controls |
+|---------|----------|
+| **Upload** | Runs CSV (one row per param combination), Baseline CSV (single row) |
+| **Column roles** | Parameter prefix (`newStrat_` default), override parameter/metric classification |
+| **Analysis** | Parameter to analyse, metrics to plot (default: ROR, MaxDD, Expectancy, ProfitFactor), bar aggregation method |
+| **Histograms & Statistics** | Metrics for histograms/stats, bin count (5–50), percentile thresholds (lower/upper sliders for color coding) |
 
-### CSV Format
+## CSV Format
 
-Runs CSV — one row per parameter combination, e.g. a 5×5×5×5 full-factorial
-sweep produces 625 rows. Required columns:
+**Runs CSV** — one row per parameter combination. Columns: `Test` (ID), `newStrat_*` (parameters), metric columns (numeric strings OK).
 
-| Column | Example | Notes |
-|--------|---------|-------|
-| `Test` | `1` | Run identifier (or first column) |
-| `newStrat_*` | `10` | Parameter columns (any prefix is configurable) |
-| Metric columns | `27.49%`, `AUD 1234`, `(500)` | Numeric strings tolerated |
-
-Baseline CSV — same schema, single row. Column casing/whitespace need not
-match the runs file exactly.
+**Baseline CSV** — same schema, single row. Column names matched case-insensitively.
 
 ## Tests
 
-```powershell
-.\.venv\Scripts\python.exe -m pytest tests/ -q
+```bash
+.venv\Scripts\activate
+python -m pytest tests/ -q
 ```
-
-25 tests covering data loading, robust numeric/encoding parsing, column
-classification, analytics aggregation and chart construction.
 
