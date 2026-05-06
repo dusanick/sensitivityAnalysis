@@ -15,6 +15,7 @@ import pandas as pd
 import streamlit as st
 
 from app import charts
+from app.analytics import summary_statistics
 from app.config import DEFAULT_PARAM_PREFIX
 from app.data import (
     align_baseline_columns,
@@ -110,11 +111,13 @@ def sidebar(runs: pd.DataFrame | None) -> dict:
         if params
         else None
     )
+    _default_plot_metrics = ["ROR", "MaxDD", "Expectancy", "ProfitFactor"]
+    _default_sel = [m for m in _default_plot_metrics if m in metrics]
     selected_metrics = (
         st.sidebar.multiselect(
             "Metrics to plot",
             options=metrics,
-            default=metrics[: min(3, len(metrics))],
+            default=_default_sel or metrics[: min(4, len(metrics))],
         )
         if metrics
         else []
@@ -129,7 +132,7 @@ def sidebar(runs: pd.DataFrame | None) -> dict:
     )
 
     st.sidebar.markdown("---")
-    st.sidebar.subheader("Histograms")
+    st.sidebar.subheader("Histograms & Statistics")
     hist_metrics = (
         st.sidebar.multiselect(
             "Metrics for histograms",
@@ -145,6 +148,19 @@ def sidebar(runs: pd.DataFrame | None) -> dict:
         "Histogram bins", min_value=5, max_value=50, value=10, step=1
     )
 
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Summary Statistics")
+    pct_low = st.sidebar.slider(
+        "Lower percentile threshold",
+        min_value=0.0, max_value=1.0, value=0.20, step=0.05,
+        help="Below this → amber (weak baseline).",
+    )
+    pct_high = st.sidebar.slider(
+        "Upper percentile threshold",
+        min_value=0.0, max_value=1.0, value=0.70, step=0.05,
+        help="At or above this → red (over-optimized).",
+    )
+
     state.update(
         roles=roles,
         params=params,
@@ -154,6 +170,8 @@ def sidebar(runs: pd.DataFrame | None) -> dict:
         agg=agg,
         hist_metrics=hist_metrics,
         hist_bins=hist_bins,
+        pct_low=pct_low,
+        pct_high=pct_high,
     )
     return state
 
@@ -161,6 +179,17 @@ def sidebar(runs: pd.DataFrame | None) -> dict:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+def _fmt_stat(val):
+    """Format a summary statistics cell value."""
+    if pd.isna(val):
+        return "N/A"
+    if isinstance(val, float):
+        if abs(val) < 2 and val != 0:
+            return f"{val:.2%}"
+        return f"{val:,.2f}"
+    return f"{val:,.0f}"
+
+
 def _filter_other_params(
     runs: pd.DataFrame, params: list[str], selected_param: str
 ) -> tuple[pd.DataFrame, dict]:
@@ -252,8 +281,8 @@ def main() -> None:
         f"**Rows in view:** {len(plot_df)}  ·  **Baseline:** {base_status}"
     )
 
-    tab_effect, tab_hist, tab_heatmap, tab_data = st.tabs(
-        ["Parameter Effect", "Histograms", "Heatmap", "Raw Data"]
+    tab_effect, tab_hist, tab_summary, tab_heatmap, tab_data = st.tabs(
+        ["Parameter Effect", "Histograms", "Summary Statistics", "Heatmap", "Raw Data"]
     )
 
     # --- Parameter Effect ---
@@ -265,15 +294,9 @@ def main() -> None:
             "`n=` shows runs aggregated per bar"
         )
         for m in selected_metrics:
-            base_val = (
-                float(plot_baseline[m])
-                if plot_baseline is not None and m in plot_baseline.index
-                and pd.notna(plot_baseline[m])
-                else None
-            )
             st.plotly_chart(
                 charts.bars_per_level(
-                    plot_df, selected_param, m, agg=agg, baseline_value=base_val,
+                    plot_df, selected_param, m, agg=agg, baseline_value=None,
                 ),
                 use_container_width=True,
             )
@@ -303,6 +326,45 @@ def main() -> None:
                     ),
                     use_container_width=True,
                 )
+
+    # --- Summary Statistics ---
+    with tab_summary:
+        st.subheader("Summary Statistics")
+        pct_low: float = state.get("pct_low", 0.20)
+        pct_high: float = state.get("pct_high", 0.70)
+        if not hist_metrics:
+            st.info(
+                "Pick at least one metric in the sidebar (Histograms section)."
+            )
+        else:
+            stats_df = summary_statistics(base_df, hist_metrics, baseline_row)
+            st.caption(
+                f"Rows: **{len(base_df)}** · Metrics: **{len(hist_metrics)}** · "
+                f"Percentile thresholds: amber < {pct_low:.0%}, "
+                f"green {pct_low:.0%}–{pct_high:.0%}, red ≥ {pct_high:.0%}"
+            )
+
+            def _color_percentile(val):
+                """Return CSS for percentile cell coloring."""
+                if pd.isna(val):
+                    return ""
+                if val < pct_low:
+                    return "background-color: #FFF9C4; color: #F57F17"
+                if val >= pct_high:
+                    return "background-color: #FCE4EC; color: #C00000"
+                return "background-color: #E2EFDA; color: #2E7D32"
+
+            styled = stats_df.style.format(
+                {m: _fmt_stat for m in hist_metrics},
+                na_rep="N/A",
+            ).apply(
+                lambda row: [
+                    _color_percentile(v) if row.name == "Baseline Percentile" else ""
+                    for v in row
+                ],
+                axis=1,
+            )
+            st.dataframe(styled, use_container_width=True)
 
     # --- Heatmap ---
     with tab_heatmap:
