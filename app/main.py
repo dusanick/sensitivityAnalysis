@@ -36,15 +36,19 @@ st.set_page_config(
 # Cached loaders
 # ---------------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
-def _load(buf: bytes, name: str) -> pd.DataFrame:
-    """Cache wrapper — keyed by file bytes so re-uploading the same file is free."""
-    return load_csv(io.BytesIO(buf))
+def _load(buf: bytes, name: str) -> tuple[pd.DataFrame, list[str]]:
+    """Cache wrapper — keyed by file bytes so re-uploading the same file is free.
+    Returns (dataframe, list_of_percentage_columns)."""
+    df = load_csv(io.BytesIO(buf))
+    pct_columns = df.attrs.get("pct_columns", [])
+    return df, pct_columns
 
 
-def _read_upload(uploaded) -> pd.DataFrame | None:
+def _read_upload(uploaded) -> tuple[pd.DataFrame | None, list[str]]:
     if uploaded is None:
-        return None
-    return _load(uploaded.getvalue(), uploaded.name)
+        return None, []
+    df, pct_columns = _load(uploaded.getvalue(), uploaded.name)
+    return df, pct_columns
 
 
 # ---------------------------------------------------------------------------
@@ -179,13 +183,25 @@ def sidebar(runs: pd.DataFrame | None) -> dict:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-def _fmt_stat(val):
-    """Format a summary statistics cell value."""
+def _fmt_stat_cell(val, row_name: str, is_pct_col: bool = False) -> str:
+    """Format a summary statistics cell value based on its row context.
+
+    - Count: integer
+    - Min/Max/Median/Average/Baseline Value: with % if column is a percentage,
+      otherwise plain number
+    - % Delta to Average/% Delta to Median: always as percentage (val*100 + %)
+    - Baseline Percentile: always as percentage (val*100 + %)
+    """
     if pd.isna(val):
         return "N/A"
+    if row_name == "Count":
+        return f"{int(val):,}"
+    if row_name in ("% Delta to Average", "% Delta to Median", "Baseline Percentile"):
+        return f"{val:.2%}"
+    # Min, Max, Median, Average, Baseline Value
     if isinstance(val, float):
-        if abs(val) < 2 and val != 0:
-            return f"{val:.2%}"
+        if is_pct_col:
+            return f"{val:.2f}%"
         return f"{val:,.2f}"
     return f"{val:,.0f}"
 
@@ -217,11 +233,11 @@ def _filter_other_params(
 # Main
 # ---------------------------------------------------------------------------
 def main() -> None:
-    runs_raw = _read_upload(st.session_state.get("runs_file"))
+    runs_raw, _ = _read_upload(st.session_state.get("runs_file"))
     state = sidebar(runs_raw)
 
-    runs = _read_upload(state.get("runs_file"))
-    baseline_df = _read_upload(state.get("base_file"))
+    runs, pct_columns = _read_upload(state.get("runs_file"))
+    baseline_df, _ = _read_upload(state.get("base_file"))
 
     st.title("Parameter Sensitivity Dashboard")
     st.caption(
@@ -354,13 +370,22 @@ def main() -> None:
                     return "background-color: #FCE4EC; color: #C00000"
                 return "background-color: #E2EFDA; color: #2E7D32"
 
-            styled = stats_df.style.format(
-                {m: _fmt_stat for m in hist_metrics},
-                na_rep="N/A",
-            ).apply(
+            # Apply row-aware formatting to each cell
+            pct_cols = set(pct_columns)
+            formatted_df = stats_df.astype(object).copy()
+            for row_name in formatted_df.index:
+                for col in formatted_df.columns:
+                    formatted_df.at[row_name, col] = _fmt_stat_cell(
+                        stats_df.at[row_name, col], row_name,
+                        is_pct_col=(col in pct_cols),
+                    )
+
+            styled = formatted_df.style.apply(
                 lambda row: [
-                    _color_percentile(v) if row.name == "Baseline Percentile" else ""
-                    for v in row
+                    _color_percentile(stats_df.at[row.name, col])
+                    if row.name == "Baseline Percentile"
+                    else ""
+                    for col in row.index
                 ],
                 axis=1,
             )

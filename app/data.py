@@ -51,14 +51,24 @@ def _strip_thousands_and_decimal(text: str) -> str:
     return text
 
 
-def _coerce_series(s: pd.Series) -> pd.Series:
+def _coerce_series(s: pd.Series) -> tuple[pd.Series, bool]:
     """Best-effort convert a series of strings like '27.49%', '(5.28%)' or
     'AUD 1,234' to floats. Leaves the column untouched if conversion produces
-    fewer than 50% valid values."""
+    fewer than 50% valid values.
+
+    Returns (converted_series, is_percentage).
+    """
     if pd.api.types.is_numeric_dtype(s):
-        return s
+        return s, False
 
     cleaned = s.astype("string").str.strip()
+
+    # Detect if majority of non-null values contain a '%' sign
+    non_null_mask = cleaned.notna() & (cleaned != "<NA>")
+    non_null_count = non_null_mask.sum()
+    has_pct = cleaned[non_null_mask].str.contains("%", na=False).sum()
+    is_pct = non_null_count > 0 and has_pct / non_null_count >= 0.5
+
     # Parenthesised negatives -> prefix with '-'
     cleaned = cleaned.str.replace(_PAREN_NEG_RE, r"-\1", regex=True)
     cleaned = cleaned.str.replace(_CURRENCY_PREFIX_RE, "", regex=True)
@@ -73,8 +83,8 @@ def _coerce_series(s: pd.Series) -> pd.Series:
     converted = pd.to_numeric(cleaned, errors="coerce")
     non_null = s.notna().sum()
     if non_null and converted.notna().sum() / non_null >= 0.5:
-        return converted
-    return s
+        return converted, is_pct
+    return s, False
 
 
 # ---------------------------------------------------------------------------
@@ -126,8 +136,12 @@ def load_csv(file: str | io.IOBase | bytes) -> pd.DataFrame:
     """
     df = _read_csv_flexible(file)
     df.columns = [str(c).strip() for c in df.columns]
+    pct_columns: list[str] = []
     for col in df.columns:
-        df[col] = _coerce_series(df[col])
+        df[col], is_pct = _coerce_series(df[col])
+        if is_pct:
+            pct_columns.append(col)
+    df.attrs["pct_columns"] = pct_columns
     return df
 
 
