@@ -1,0 +1,4 @@
+1. Profit Factor has Min as Percentage (128%) but Max as numeric value (2.40). Make the processing of values more robust and fix.
+2. Summary Statistics - NetProfit has % Delta to Average a value of 11.79 and % Delta to Median a value of 14.20. All other columns have "%" signs. Make it consistent across all and verify what is the best approach
+3. Summary Statistics - ROR1Y until ROR15Y has inconsistent formatting in percentages, showing Min as -119.00% whereas it is only -1.19% or dont showing any percentages at all.
+4. Summary Statistics - remove % sign from % Delta to Average and % Delta to Median Row header and apply the sign to the values 
